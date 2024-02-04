@@ -1,0 +1,101 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Description: >
+    A Lambda function that will un-snooze Trello cards
+Parameters:
+  LambdaFunctionName:
+    Type: String
+    MinLength: '1'
+    MaxLength: '64'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9_-]*'
+    Description: The name of the Lambda function to be deployed
+    Default: UnsnoozeTrello
+  TrelloApiKey:
+    Type: String
+    MinLength: '32'
+    MaxLength: '32'
+    Description: The API key from Trello to use
+  TrelloApiToken:
+    Type: String
+    MinLength: '64'
+    MaxLength: '64'
+    Description: The API token from Trello to use
+  TrelloLists:
+    Type: String
+    Description: A comma seperated list of list IDs to check for snoozed cards
+
+Resources:
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Join ['',[!Ref LambdaFunctionName, '-LambdaRole']]
+      Description: Managed role for Trello Un-Snooze Lambda
+      ManagedPolicyArns:
+        - !Ref LambdaPolicy
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action:
+          - 'sts:AssumeRole'
+      
+  LambdaPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Join ['',[!Ref LambdaFunctionName, '-LambdaPolicy']]
+      Description: Managed policy for Trello Un-Snooze forwarder Lambda
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - 'logs:CreateLogStream'
+              - 'logs:PutLogEvents'
+            Resource: !Join ['',['arn:', !Ref AWS::Partition, ':logs:', !Ref AWS::Region, ':', !Ref AWS::AccountId, ':log-group:/aws/lambda/', !Ref LambdaFunctionName, ':*']]
+          - Effect: Allow
+            Action:
+              - 'logs:CreateLogGroup'
+            Resource: !Sub 'arn:${AWS::Partition}:logs:${AWS::Region}:${AWS::AccountId}:*'
+        
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Join ['',['/aws/lambda/', !Ref LambdaFunctionName]]
+      RetentionInDays: 30
+            
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Trello Un-Snooze
+      FunctionName: !Ref LambdaFunctionName
+      Handler: lambda_function.handler
+      MemorySize: 128
+      Runtime: python3.12
+      Role: !GetAtt 'LambdaRole.Arn'
+      Timeout: 240
+      Environment:
+        Variables:
+          TrelloApiKey: !Ref TrelloApiKey
+          TrelloApiToken: !Ref TrelloApiToken
+          TrelloLists: !Ref TrelloLists
+      Code: deployment_package.zip
+    
+  ScheduleRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Schedule for un-snoozing trello cards
+      EventBusName: default
+      Name: !Join ['',[!Ref LambdaFunctionName, '-Scheduler']]
+      ScheduleExpression: cron(0 8 ? * * *)
+      State: ENABLED
+      Targets: 
+        - Arn: !GetAtt LambdaFunction.Arn
+          Id: "TrelloUnsnoozeLambdaFunction"
+        
+Outputs:
+  CLI:
+    Description: Use this command to manually process any cards for today
+    Value: !Sub |
+        aws lambda invoke --function-name ${LambdaFunction} --payload '{"null": "null"}' lambda-output.txt --cli-binary-format raw-in-base64-out

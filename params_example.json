@@ -1,0 +1,7 @@
+{
+    "Parameters": {
+      "TrelloApiKey": "12345",
+      "TrelloApiToken": "1234567890",
+      "TrelloLists": "123,456,789,012"
+    }
+}
